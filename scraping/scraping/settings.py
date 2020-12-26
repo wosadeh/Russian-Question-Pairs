@@ -127,11 +127,10 @@ DB_SETTINGS = {
     'url': 'sqlite:///questions.db'
 }
 
-DUPEFILTER_CLASS = 'scraping.custom_filters.SessionFilter'
+# DUPEFILTER_CLASS = 'scraping.custom_filters.SessionFilter'
 
-# Update settings by sensitive values
+# If sensitive_settings.py file is exists, updates the setting values
 if have_sensitive:
-    print(DB_SETTINGS)
     # is there an __all__?  if so respect it
     if "__all__" in sensitive_settings.__dict__:
         names = sensitive_settings.__dict__["__all__"]
@@ -139,5 +138,3 @@ if have_sensitive:
         # otherwise we import all names that don't begin with _
         names = [x for x in sensitive_settings.__dict__ if not x.startswith("_")]
     locals().update({k: getattr(sensitive_settings, k) for k in names})
-
-    print(DB_SETTINGS)

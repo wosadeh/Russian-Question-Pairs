@@ -8,6 +8,7 @@
 from itemadapter import ItemAdapter
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm.exc import NoResultFound
 
 from database import Base
 from database.models import Answer, Question, Tag
@@ -19,6 +20,10 @@ class ScrapingPipeline:
 
 
 class DatabaseSQLPipeline:
+    """
+    Pipeline which saves parsed question into SQL database
+    using models from database module
+    """
     def __init__(self, db_url: str, connect_args=None):
         self.db_url = db_url
         if connect_args is None:
@@ -42,19 +47,24 @@ class DatabaseSQLPipeline:
         self.session.close()
 
     def process_item(self, item, spider):
+        # Processed parsed tags
         tags = []
         new_tags_added = False
         for tag_name in item.get('tags', []):
-            tag_obj = self.session.query(Tag).filter(Tag.tag == tag_name).one_or_none()
-            if tag_obj is None:
+            # Get tag object from DB or create if not exists
+            try:
+                tag_obj = self.session.query(Tag).filter(Tag.tag == tag_name).one()
+            except NoResultFound:
                 tag_obj = Tag(tag=tag_name)
                 self.session.add(tag_obj)
                 new_tags_added = True
 
             tags.append(tag_obj)
+        # Add new tags to DB
         if new_tags_added:
             self.session.commit()
 
+        # If same question is in DB, return
         question_short_name = item['question_id']
         if question_short_name is not None:
             q_obj = self.session.query(Question).filter(Question.short_name == question_short_name).one_or_none()
@@ -62,6 +72,7 @@ class DatabaseSQLPipeline:
                 spider.logger.debug("The question with id='%s' is already exists", question_short_name)
                 return item
 
+        # Create new question objects
         question = Question(
             text=item['question'],
             short_name=question_short_name,
@@ -70,6 +81,7 @@ class DatabaseSQLPipeline:
         )
         question.tags.extend(tags)
 
+        # Create DB object for each answer and attach them to question
         for answer_item in item.get('answers', []):
             text = answer_item['text']
             pluses = answer_item.get('pluses', None)
@@ -77,6 +89,7 @@ class DatabaseSQLPipeline:
             ans_obj = Answer(text=text, pluses=pluses, minuses=minuses)
             self.session.add(ans_obj)
             question.answers.append(ans_obj)
+        # Commit all changes
         self.session.add(question)
         self.session.commit()
         return item

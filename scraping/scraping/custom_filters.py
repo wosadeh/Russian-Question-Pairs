@@ -3,6 +3,11 @@ from scrapy import Request
 
 
 class SessionFilter(RFPDupeFilter):
+    """
+    Wraps default request filter.
+    Requests with 'filter_mode' equal 'session' in meta attribute are filtered only during one spider run.
+    After restarting spider, such requests may be executed again.
+    """
     def __init__(self, path=None, debug=False):
         super(SessionFilter, self).__init__(path=path, debug=debug)
         self.session_filter = RFPDupeFilter(path=None, debug=debug)
