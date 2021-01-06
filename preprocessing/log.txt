@@ -1,0 +1,25 @@
+Initial number of question: 248278
+Applying filter Valid Unicode symbols:
+	# of item before filtering: 248278
+	# of filtered out items: 632
+	# of remaining items: 247646
+
+Applying filter Obscene words:
+	# of item before filtering: 247646
+	# of filtered out items: 1061
+	# of remaining items: 246585
+
+Applying filter low IPM:
+	# of item before filtering: 246585
+	# of filtered out items: 52491
+	# of remaining items: 194094
+
+Applying filter Too short sentence:
+	# of item before filtering: 194094
+	# of filtered out items: 35803
+	# of remaining items: 158291
+
+Applying filter Too long sentence:
+	# of item before filtering: 158291
+	# of filtered out items: 45854
+	# of remaining items: 112437
