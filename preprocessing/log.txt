@@ -6,20 +6,20 @@ Applying filter Valid Unicode symbols:
 
 Applying filter Obscene words:
 	# of item before filtering: 247646
-	# of filtered out items: 1061
-	# of remaining items: 246585
+	# of filtered out items: 1115
+	# of remaining items: 246531
 
 Applying filter low IPM:
-	# of item before filtering: 246585
-	# of filtered out items: 52491
-	# of remaining items: 194094
+	# of item before filtering: 246531
+	# of filtered out items: 156482
+	# of remaining items: 90049
 
 Applying filter Too short sentence:
-	# of item before filtering: 194094
-	# of filtered out items: 35803
-	# of remaining items: 158291
+	# of item before filtering: 90049
+	# of filtered out items: 19522
+	# of remaining items: 70527
 
 Applying filter Too long sentence:
-	# of item before filtering: 158291
-	# of filtered out items: 45854
-	# of remaining items: 112437
+	# of item before filtering: 70527
+	# of filtered out items: 23322
+	# of remaining items: 47205

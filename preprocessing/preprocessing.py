@@ -1,7 +1,5 @@
 import pandas as pd
 import numpy as np
-import seaborn as sns
-import matplotlib.pyplot as plt
 from pymystem3 import Mystem
 from nltk import word_tokenize
 from nltk import download as nltk_download
@@ -11,10 +9,12 @@ from typing import Sequence, List, Union, Any, Callable, Optional, Tuple
 from copy import copy
 from os import path
 
+from utils.download import extend_dataframe
+
 nltk_download('punkt', quiet=True)
 
 # Unicode symbols which can be replaced by ASCII char without any ambiguity
-_char_replacement = [
+_char_soft_replacement = [
     ('\t', ' '),
     ('\n', ' '),
     ('\r', ' '),
@@ -35,7 +35,7 @@ _char_replacement = [
     ('―', '-'),
     ('−', '-'),
 ]
-_substr_replacement = [
+_substr_soft_replacement = [
     ('\\r\\n', ' '),
     ('\\r', ' '),
     ('\\n', ' '),
@@ -47,7 +47,7 @@ _substr_replacement = [
     ('Й', 'Й')
 ]
 
-_char_replace_dict = dict(_char_replacement)
+_char_soft_replace_dict = dict(_char_soft_replacement)
 
 # Unicode symbol, which can be removed without doubt
 _chars_soft_remove = ['`', '\xad', '´', '¶', '′', '\u200d']
@@ -63,26 +63,40 @@ _chars_hard_remove = [
 ]
 _chars_hard_remove_set = set(_chars_hard_remove)
 
+# Ascii punctuation chars
+_punkt_ranges = [
+    (0x0021, 0x002f),
+    (0x003a, 0x0040),
+    (0x005b, 0x0060),
+    (0x007b, 0x007e)
+]
+# Ascii punctuation chars with space char
+_punkt_w_space_ranges = [
+    (0x0020, 0x002f),
+    (0x003a, 0x0040),
+    (0x005b, 0x0060),
+    (0x007b, 0x007e)
+]
+
 with open('obscene_words.txt') as f:
     obscene_words = list(map(lambda s: s.rstrip(), f))
 _obscene_words_set = set(obscene_words)
 
 
 def sanitize_unicode(s: str, mode: str = 'soft') -> str:
-    # Normalizing unicode and remove meaningless characters
-    if mode == 'soft':
-        chars2remove = _chars_soft_remove_set
-    elif mode == 'hard':
-        chars2remove = _chars_soft_remove_set | _chars_hard_remove_set
-    else:
-        raise ValueError("Only 'hard' and 'soft' mode are supported")
+    """Normalize unicode string and remove meaningless characters
+
+    """
 
     normalized_s = normalize('NFKD', s)
-    sanitized_s = ''.join(char for char in normalized_s if char not in chars2remove)
-    for args in _substr_replacement:
+    sanitized_s = ''.join(char for char in normalized_s if char not in _chars_soft_remove)
+    for args in _substr_soft_replacement:
         sanitized_s = sanitized_s.replace(*args)
 
-    sanitized_s = ''.join(_char_replace_dict.get(char, char) for char in sanitized_s)
+    if mode == 'hard':
+        sanitized_s = ''.join(char for char in sanitized_s if char not in _chars_hard_remove_set)
+
+    sanitized_s = ''.join(_char_soft_replace_dict.get(char, char) for char in sanitized_s)
     return sanitized_s
 
 
@@ -178,7 +192,7 @@ class QIdDataError(ValueError):
 
 
 MIN_LEN = 6
-MAX_LEN = 14
+MAX_LEN = 12
 IPM_LOWER_THRESHOLD = 2.
 questions_data_path = '../All_questions_with_tags.csv'
 _required_columns = ['id', 'short_name', 'url']
@@ -211,9 +225,7 @@ if __name__ == '__main__':
     # Download questions text if not presented
     if 'text' not in questions:
         text_was_presented = False
-        questions['text'] = [''] * len(questions)
-        # TODO add questions text downloading
-        raise NotImplementedError
+        questions = extend_dataframe(questions, quite=False)
 
     print('Normalizing unicode representation of text questions')
     questions['text'] = questions['text'].apply(lambda s: sanitize_unicode(s, mode='hard'))
@@ -221,7 +233,7 @@ if __name__ == '__main__':
     cur_idx = list(questions.index)
     print('Initial number of question: {}'.format(len(cur_idx)))
 
-    cur_idx = apply_index_filter(cur_idx, questions['text'].iloc, is_valid_unicode_range,
+    cur_idx = apply_index_filter(cur_idx, questions['text'].iat, is_valid_unicode_range,
                                  filter_name='Valid Unicode symbols')
 
     print('Lemmatizing questions text for applying further filters')
@@ -238,9 +250,21 @@ if __name__ == '__main__':
 
 
     def ipm_filter(sent_lemmas: Sequence[str]) -> bool:
-        # Non-cyrillic tokens are ignored and don't affect filtering
+        ignore_ranges = [
+            (0x0030, 0x0039),  # digits
+        ]
+        ignore_ranges.extend(_punkt_w_space_ranges)
+
         for token in sent_lemmas:
-            if is_valid_unicode_range(token, (0x0400, 0x04ff)) and ipm.get(token, float('inf')) < IPM_LOWER_THRESHOLD:
+            # Punctuation, spacing and numbers are ignored
+            if is_valid_unicode_range(token, ignore_ranges):
+                continue
+
+            # Non-russian word is ignored
+            if not is_valid_unicode_range(token, (0x0400, 0x04ff)):
+                return False
+
+            if ipm.get(token, 0.) < IPM_LOWER_THRESHOLD:
                 return False
         return True
 
@@ -254,9 +278,9 @@ if __name__ == '__main__':
     # fig.set_xlabels('Question length')
     # plt.show()
 
-    cur_idx = apply_index_filter(cur_idx, questions['q_len'].iloc, lambda q_l: q_l >= MIN_LEN,
+    cur_idx = apply_index_filter(cur_idx, questions['q_len'].iat, lambda q_l: q_l >= MIN_LEN,
                                  filter_name='Too short sentence')
-    cur_idx = apply_index_filter(cur_idx, questions['q_len'].iloc, lambda q_l: q_l <= MAX_LEN,
+    cur_idx = apply_index_filter(cur_idx, questions['q_len'].iat, lambda q_l: q_l <= MAX_LEN,
                                  filter_name='Too long sentence')
 
     # Construct resulting table
