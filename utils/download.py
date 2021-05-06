@@ -4,6 +4,7 @@ Utility file to download yandex Q question text by the URL
 import pandas as pd
 from parsel import Selector
 from urllib.request import urlopen
+from typing import Optional
 
 try:
     from tqdm.auto import tqdm
@@ -18,7 +19,7 @@ _not_found_texts = [
     ]
 
 
-def get_q_text(url: str) -> str:
+def get_q_text(url: str) -> Optional[str]:
     """Download Yandex Q question text by a given url
 
     Args:
@@ -35,7 +36,7 @@ def get_q_text(url: str) -> str:
     h1_text = sel.xpath('//h1/text()').getall()
     h1_text = list(filter(lambda s: s not in _not_found_texts, h1_text))
     if len(h1_text) == 0:
-        return ''
+        return None
     else:
         return h1_text[0]
 
@@ -54,6 +55,7 @@ def extend_dataframe(df: pd.DataFrame, quite: bool = False) -> pd.DataFrame:
     extended_df = df.copy(deep=True)
     extended_df['text'] = [''] * len(extended_df)
 
+    excluded = []
     if quite:
         index_iter = extended_df.index
     else:
@@ -61,7 +63,10 @@ def extend_dataframe(df: pd.DataFrame, quite: bool = False) -> pd.DataFrame:
     for i in index_iter:
         url = extended_df['url'].iat[i]
         q_text = get_q_text(url)
-        extended_df.at[extended_df.index == i, 'text'] = q_text
+        if q_text is None:
+            excluded.append(i)
+        else:
+            extended_df.at[extended_df.index == i, 'text'] = q_text
 
-    return extended_df
+    return extended_df.drop(index=excluded)
 
