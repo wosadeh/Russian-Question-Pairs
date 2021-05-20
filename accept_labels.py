@@ -1,6 +1,9 @@
 import pandas as pd
+import numpy as np
 
 import argparse
+from datetime import datetime, timedelta
+from warnings import warn
 from sys import stdin, stdout
 from typing import Sequence, Tuple, Generator, Union
 
@@ -29,6 +32,38 @@ def propagate_verdict(df: pd.DataFrame) -> pd.DataFrame:
     return res
 
 
+def last_ctrl_good_ts(df: pd.DataFrame, time_col: str, ctrl_threshold=1.):
+    windows_size = 40
+    last_ts = datetime.today() + timedelta(days=366)
+    if len(df) < windows_size:
+        ctrl_df = df[~df['GOLDEN:class'].isna()]
+        ctrl_frac = (ctrl_df['GOLDEN:class'] == ctrl_df['OUTPUT:class']).astype(float).mean()
+
+        # Special rules for workers with low number of control answers
+        if len(ctrl_df) <= 2:
+            loc_thresh = 0.49
+        elif len(ctrl_df) <= 4:
+            loc_thresh = 0.5
+        else:
+            loc_thresh = ctrl_threshold
+
+        if ctrl_frac < loc_thresh:
+            last_ts = datetime.fromtimestamp(0)
+        return last_ts
+
+    df = df.sort_values([time_col, 'ASSIGNMENT:assignment_id'], ascending=False).reset_index(drop=True)
+    # 1 question from 5 is control
+    for j in range(windows_size, len(df) + 1, 5):
+        ctrl_df = df.loc[j - windows_size:j]
+        ctrl_df = ctrl_df[~ctrl_df['GOLDEN:class'].isna()]
+        ctrl_frac = (ctrl_df['GOLDEN:class'] == ctrl_df['OUTPUT:class']).astype(float).mean()
+        if ctrl_frac < ctrl_threshold:
+            last_ts = df.at[j, time_col]
+            break
+
+    return last_ts
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Accepting user answers from Yandex Toloka')
     parser.add_argument(
@@ -49,6 +84,13 @@ if __name__ == '__main__':
         '--decline-only',
         action='store_true',
         help='Do not accept answers'
+    )
+    parser.add_argument(
+        '--ctrl',
+        nargs='?',
+        type=float,
+        default=argparse.SUPPRESS,
+        help='Decline for bad answers on control questions in sliding window'
     )
     parser.add_argument(
         '--no-prop',
@@ -73,6 +115,11 @@ if __name__ == '__main__':
     else:
         in_f = args.input
     ans = pd.read_csv(in_f, sep='\t')
+
+    if 'ASSIGNMENT:submitted' in ans.columns:
+        ans['ASSIGNMENT:submitted'] = ans['ASSIGNMENT:submitted'].apply(lambda s: datetime.fromisoformat(s))
+    if 'ASSIGNMENT:started' in ans.columns:
+        ans['ASSIGNMENT:started'] = ans['ASSIGNMENT:started'].apply(lambda s: datetime.fromisoformat(s))
 
     # Choose ids with broken url
     broken_candidate = set(
@@ -141,6 +188,32 @@ if __name__ == '__main__':
     comments = ans.loc[mask, 'INPUT:question_2_url'].apply(
         lambda url: f'Вопрос №2, отмеченный как недоступный, доступен по ссылке ({url})')
     ans.loc[mask, 'ACCEPT:comment'] = comments
+
+    if 'ASSIGNMENT:submitted' in ans.columns:
+        time_col = 'ASSIGNMENT:submitted'
+    elif 'ASSIGNMENT:started' in ans.columns:
+        time_col = 'ASSIGNMENT:started'
+    else:
+        time_col = None
+
+    if 'ctrl' in args and time_col is not None:
+        if args.ctrl is None:
+            ctrl = 0.75
+        else:
+            ctrl = args.ctrl
+        if 1. < ctrl <= 100:
+            ctrl /= 100
+        if 0. <= ctrl <= 1.:
+            grouped = ans.groupby('ASSIGNMENT:worker_id')
+            # Calculate the latest time point when control answers were nice
+            last_ts = grouped.apply(lambda df: last_ctrl_good_ts(df, time_col, ctrl)).reset_index().rename(columns={0: 'last_ts'})
+            ans = pd.merge(ans, last_ts, left_on='ASSIGNMENT:worker_id', right_on='ASSIGNMENT:worker_id', how='left')
+
+            ans.loc[ans[time_col] >= ans['last_ts'], 'ACCEPT:verdict'] = '-'
+            ans.loc[ans[time_col] >= ans['last_ts'], 'ACCEPT:comment'] = 'Неправильные ответы на контрольные вопросы.'
+            ans = ans.drop(columns='last_ts')
+        else:
+            warn('Incorrect "ctrl" argument value. No rules based on control questions will be applied')
 
     if not args.no_prop and 'ASSIGNMENT:assignment_id' in ans.columns:
         # Propagate declined answers on whole page
